@@ -1,0 +1,56 @@
+import numpy as np
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Example dataset
+data = {
+    'customer_id': [1, 2, 3, 4, 5],
+    'annual_income': [15000, 20000, 25000, 30000, 35000],
+    'spending_score': [39, 81, 6, 77, 40]
+}
+df = pd.DataFrame(data)
+
+# Alternatively, if you have a CSV file
+# df = pd.read_csv('customers.csv')
+
+# Features for clustering
+X = df[['annual_income', 'spending_score']]
+
+# Standardize the features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Use the elbow method to find the optimal number of clusters
+wcss = []  # Within-cluster sums of squares
+
+for i in range(1, 11):
+    kmeans = KMeans(n_clusters=i, random_state=42)
+    kmeans.fit(X_scaled)
+    wcss.append(kmeans.inertia_)
+
+# Plot the elbow graph
+plt.figure(figsize=(10, 6))
+plt.plot(range(1, 11), wcss, marker='o')
+plt.title('Elbow Method')
+plt.xlabel('Number of Clusters')
+plt.ylabel('WCSS')
+plt.show()
+
+# Apply K-means with the optimal number of clusters (assume it's 3)
+kmeans = KMeans(n_clusters=3, random_state=42)
+clusters = kmeans.fit_predict(X_scaled)
+
+# Add cluster labels to the original DataFrame
+df['cluster'] = clusters
+
+# Plot the clusters
+plt.figure(figsize=(10, 6))
+sns.scatterplot(x='annual_income', y='spending_score', hue='cluster', data=df, palette='viridis')
+plt.title('Customer Segments')
+plt.xlabel('Annual Income')
+plt.ylabel('Spending Score')
+plt.legend(title='Cluster')
+plt.show()
