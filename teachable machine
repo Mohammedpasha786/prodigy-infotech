@@ -1,21 +1,55 @@
-from sklearn import datasets
-from sklearn.model_selection import train_test_split
-from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from typing import List, Dict, Tuple, Optional, Any
+from dataclasses import dataclass
+from sklearn.preprocessing import LabelEncoder
+import json
+from pathlib import Path
 
-# Load a sample dataset (like Iris) as a stand-in for user data
-data = datasets.load_iris()
-X_train, X_test, y_train, y_test = train_test_split(data.data, data.target, test_size=0.2, random_state=42)
+@dataclass
+class DataPoint:
+    features: np.ndarray
+    label: Any
 
-# Create the model
-model = SVC()
+@dataclass
+class ModelConfig:
+    input_size: int
+    hidden_size: int
+    output_size: int
+    learning_rate: float = 0.001
+    epochs: int = 100
 
-# Train the model with user-provided data (here using a sample dataset)
-model.fit(X_train, y_train)
+class DynamicNeuralNetwork(nn.Module):
+    def __init__(self, config: ModelConfig):
+        super().__init__()
+        self.layer1 = nn.Linear(config.input_size, config.hidden_size)
+        self.layer2 = nn.Linear(config.hidden_size, config.hidden_size)
+        self.layer3 = nn.Linear(config.hidden_size, config.output_size)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(0.2)
+        
+    def forward(self, x):
+        x = self.relu(self.layer1(x))
+        x = self.dropout(x)
+        x = self.relu(self.layer2(x))
+        x = self.dropout(x)
+        x = self.layer3(x)
+        return x
 
-# Predict on test data
-predictions = model.predict(X_test)
-
-# Output accuracy
-print("Accuracy:", accuracy_score(y_test, predictions))
-
+class TeachableMachine:
+    def __init__(self):
+        self.model = None
+        self.config = None
+        self.label_encoder = LabelEncoder()
+        self.feature_normalizer = None
+        self.training_history = []
+        
+    def preprocess_data(self, data_points: List[DataPoint]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Preprocess data points into tensors."""
+        features = np.array([dp.features for dp in data_points])
+        labels = np.array([dp.label for dp in data_points])
+        
+        # Encode labels
+        encoded_labels = self.label_encoder.fit
