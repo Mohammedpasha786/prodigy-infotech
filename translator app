@@ -1,0 +1,233 @@
+import torch
+from transformers import AutoModelForSeq2SeqGeneration, AutoTokenizer
+from typing import List, Dict, Optional
+import sounddevice as sd
+import numpy as np
+from scipy.io import wavfile
+import queue
+import threading
+import time
+from fastapi import FastAPI, WebSocket
+from pydantic import BaseModel
+
+class TranslatorApp:
+    def __init__(self):
+        self.model_name = "Helsinki-NLP/opus-mt-en-ROMANCE"
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.model = AutoModelForSeq2SeqGeneration.from_pretrained(self.model_name)
+        self.supported_languages = {
+            'en': 'English',
+            'es': 'Spanish',
+            'fr': 'French',
+            'it': 'Italian',
+            'pt': 'Portuguese'
+        }
+        
+        # Audio settings
+        self.sample_rate = 16000
+        self.audio_queue = queue.Queue()
+        self.is_recording = False
+
+    async def translate_text(self, text: str, source_lang: str, target_lang: str) -> str:
+        """Translate text between supported languages."""
+        try:
+            # Tokenize the input text
+            inputs = self.tokenizer(text, return_tensors="pt", padding=True)
+            
+            # Generate translation
+            outputs = self.model.generate(**inputs, max_length=128)
+            
+            # Decode the translation
+            translation = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            
+            return translation
+        except Exception as e:
+            return f"Translation error: {str(e)}"
+
+    def start_audio_recording(self):
+        """Start recording audio for real-time translation."""
+        self.is_recording = True
+        
+        def audio_callback(indata, frames, time, status):
+            if status:
+                print(status)
+            self.audio_queue.put(indata.copy())
+        
+        # Start the audio stream
+        stream = sd.InputStream(
+            callback=audio_callback,
+            channels=1,
+            samplerate=self.sample_rate
+        )
+        stream.start()
+        
+        return stream
+
+    def stop_audio_recording(self, stream):
+        """Stop recording audio."""
+        self.is_recording = False
+        stream.stop()
+        stream.close()
+
+    async def process_audio_queue(self):
+        """Process recorded audio for translation."""
+        while self.is_recording:
+            if not self.audio_queue.empty():
+                audio_data = self.audio_queue.get()
+                # Here you would typically:
+                # 1. Convert audio to text using ASR
+                # 2. Translate the text
+                # 3. Send the translation to the client
+                await self.handle_audio_chunk(audio_data)
+            await asyncio.sleep(0.1)
+
+    async def handle_audio_chunk(self, audio_data: np.ndarray):
+        """Process a chunk of audio data."""
+        # This is where you'd implement speech-to-text
+        # For now, we'll just return a placeholder
+        return "Audio processing placeholder"
+
+# FastAPI app for the web interface
+app = FastAPI()
+
+class TranslationRequest(BaseModel):
+    text: str
+    source_lang: str
+    target_lang: str
+
+@app.post("/translate")
+async def translate(request: TranslationRequest):
+    translator = TranslatorApp()
+    translation = await translator.translate_text(
+        request.text,
+        request.source_lang,
+        request.target_lang
+    )
+    return {"translation": translation}
+
+@app.websocket("/ws/audio")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    translator = TranslatorApp()
+    
+    try:
+        stream = translator.start_audio_recording()
+        
+        # Process audio in real-time
+        while True:
+            if not translator.audio_queue.empty():
+                audio_data = translator.audio_queue.get()
+                result = await translator.handle_audio_chunk(audio_data)
+                await websocket.send_text(result)
+                
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+    finally:
+        translator.stop_audio_recording(stream)
+
+# React component for the frontend
+from typing import Dict
+
+def create_translator_component() -> Dict[str, str]:
+    return {
+        "component": """
+import React, { useState, useEffect } from 'react';
+
+const TranslatorApp = () => {
+    const [inputText, setInputText] = useState('');
+    const [translation, setTranslation] = useState('');
+    const [sourceLang, setSourceLang] = useState('en');
+    const [targetLang, setTargetLang] = useState('es');
+    const [isRecording, setIsRecording] = useState(false);
+    
+    const handleTranslate = async () => {
+        const response = await fetch('/translate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                text: inputText,
+                source_lang: sourceLang,
+                target_lang: targetLang,
+            }),
+        });
+        
+        const data = await response.json();
+        setTranslation(data.translation);
+    };
+    
+    const toggleRecording = () => {
+        setIsRecording(!isRecording);
+        if (!isRecording) {
+            // Start WebSocket connection for audio
+            const ws = new WebSocket('ws://localhost:8000/ws/audio');
+            ws.onmessage = (event) => {
+                setTranslation(event.data);
+            };
+        }
+    };
+    
+    return (
+        <div className="max-w-2xl mx-auto p-4">
+            <h1 className="text-2xl font-bold mb-4">Real-Time Translator</h1>
+            
+            <div className="flex gap-4 mb-4">
+                <select
+                    value={sourceLang}
+                    onChange={(e) => setSourceLang(e.target.value)}
+                    className="border p-2 rounded"
+                >
+                    <option value="en">English</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                </select>
+                
+                <select
+                    value={targetLang}
+                    onChange={(e) => setTargetLang(e.target.value)}
+                    className="border p-2 rounded"
+                >
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="en">English</option>
+                </select>
+            </div>
+            
+            <textarea
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                className="w-full h-32 border p-2 rounded mb-4"
+                placeholder="Enter text to translate..."
+            />
+            
+            <div className="flex gap-4 mb-4">
+                <button
+                    onClick={handleTranslate}
+                    className="bg-blue-500 text-white px-4 py-2 rounded"
+                >
+                    Translate
+                </button>
+                <button
+                    onClick={toggleRecording}
+                    className={`${isRecording ? 'bg-red-500' : 'bg-green-500'} text-white px-4 py-2 rounded`}
+                >
+                    {isRecording ? 'Stop Recording' : 'Start Recording'}
+                </button>
+            </div>
+            
+            <div className="border p-4 rounded min-h-[100px]">
+                <h2 className="font-bold mb-2">Translation:</h2>
+                <p>{translation}</p>
+            </div>
+        </div>
+    );
+};
+
+export default TranslatorApp;
+        """
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
