@@ -1,0 +1,34 @@
+import spacy
+from spacy.matcher import Matcher
+
+# Load a pre-trained NLP model
+nlp = spacy.load("en_core_web_sm")
+
+# Example resume text
+resume_text = """
+John Doe
+Email: johndoe@example.com
+Skills: Python, Machine Learning, Data Science
+Experience: Software Engineer at XYZ Company
+"""
+
+# Process the text
+doc = nlp(resume_text)
+
+# Extract Name
+def extract_name(doc):
+    for ent in doc.ents:
+        if ent.label_ == "PERSON":
+            return ent.text
+
+# Extract Skills
+def extract_skills(doc):
+    skills = []
+    skillset = ["Python", "Machine Learning", "Data Science", "SQL", "NLP"]
+    for token in doc:
+        if token.text in skillset:
+            skills.append(token.text)
+    return skills
+
+print("Name:", extract_name(doc))
+print("Skills:", extract_skills(doc))
