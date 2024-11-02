@@ -1,0 +1,21 @@
+import nltk
+from nltk.corpus import words
+from nltk.metrics import edit_distance
+
+# Ensure you have the word corpus downloaded
+nltk.download("words")
+
+# Load the English words corpus
+word_list = set(words.words())
+
+def autocorrect(word):
+    if word in word_list:
+        return word
+    else:
+        # Find the closest word by edit distance
+        closest_word = min(word_list, key=lambda x: edit_distance(word, x))
+        return closest_word
+
+# Example usage
+print(autocorrect("speling"))  # Output: "spelling"
+print(autocorrect("wrld"))    # Output: "world"
