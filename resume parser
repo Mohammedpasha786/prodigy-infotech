@@ -1,34 +1,149 @@
+from dataclasses import dataclass
+from typing import List, Dict, Optional
 import spacy
-from spacy.matcher import Matcher
+import re
+from pathlib import Path
+from pdfminer.high_level import extract_text
+from datetime import datetime
 
-# Load a pre-trained NLP model
-nlp = spacy.load("en_core_web_sm")
+@dataclass
+class ContactInfo:
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    linkedin: Optional[str] = None
+    location: Optional[str] = None
 
-# Example resume text
-resume_text = """
-John Doe
-Email: johndoe@example.com
-Skills: Python, Machine Learning, Data Science
-Experience: Software Engineer at XYZ Company
-"""
+@dataclass
+class Education:
+    degree: str
+    institution: str
+    graduation_date: Optional[datetime] = None
+    gpa: Optional[float] = None
 
-# Process the text
-doc = nlp(resume_text)
+@dataclass
+class Experience:
+    title: str
+    company: str
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    description: List[str] = None
 
-# Extract Name
-def extract_name(doc):
-    for ent in doc.ents:
-        if ent.label_ == "PERSON":
-            return ent.text
+@dataclass
+class Resume:
+    contact_info: ContactInfo
+    education: List[Education]
+    experience: List[Experience]
+    skills: List[str]
+    raw_text: str
 
-# Extract Skills
-def extract_skills(doc):
-    skills = []
-    skillset = ["Python", "Machine Learning", "Data Science", "SQL", "NLP"]
-    for token in doc:
-        if token.text in skillset:
-            skills.append(token.text)
-    return skills
+class ResumeParser:
+    def __init__(self):
+        self.nlp = spacy.load("en_core_web_sm")
+        self.initialize_patterns()
 
-print("Name:", extract_name(doc))
-print("Skills:", extract_skills(doc))
+    def initialize_patterns(self):
+        self.patterns = {
+            'email': re.compile(r'[\w\.-]+@[\w\.-]+\.\w+'),
+            'phone': re.compile(r'[\+\(]?[1-9][0-9 .\-\(\)]{8,}[0-9]'),
+            'linkedin': re.compile(r'linkedin\.com/in/[\w-]+/?'),
+            'date': re.compile(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\s,]*20\d{2}')
+        }
+    
+    def parse_pdf(self, file_path: str) -> Resume:
+        text = extract_text(file_path)
+        doc = self.nlp(text)
+        
+        contact_info = self._extract_contact_info(text)
+        education = self._extract_education(doc)
+        experience = self._extract_experience(doc)
+        skills = self._extract_skills(doc)
+        
+        return Resume(
+            contact_info=contact_info,
+            education=education,
+            experience=experience,
+            skills=skills,
+            raw_text=text
+        )
+    
+    def _extract_contact_info(self, text: str) -> ContactInfo:
+        contact_info = ContactInfo()
+        
+        # Extract email
+        email_match = self.patterns['email'].search(text)
+        if email_match:
+            contact_info.email = email_match.group()
+            
+        # Extract phone
+        phone_match = self.patterns['phone'].search(text)
+        if phone_match:
+            contact_info.phone = phone_match.group()
+            
+        # Extract LinkedIn
+        linkedin_match = self.patterns['linkedin'].search(text)
+        if linkedin_match:
+            contact_info.linkedin = linkedin_match.group()
+            
+        return contact_info
+    
+    def _extract_education(self, doc) -> List[Education]:
+        education_list = []
+        education_section = self._find_section(doc, "education")
+        
+        if education_section:
+            for ent in education_section.ents:
+                if ent.label_ == "ORG":
+                    # Simplified example - in practice, would need more sophisticated parsing
+                    education_list.append(Education(
+                        degree="Degree",  # Would need more sophisticated parsing
+                        institution=ent.text
+                    ))
+                    
+        return education_list
+    
+    def _extract_experience(self, doc) -> List[Experience]:
+        experience_list = []
+        experience_section = self._find_section(doc, "experience")
+        
+        if experience_section:
+            # This is a simplified implementation
+            # In practice, would need more sophisticated parsing
+            for ent in experience_section.ents:
+                if ent.label_ == "ORG":
+                    experience_list.append(Experience(
+                        title="Position",  # Would need more sophisticated parsing
+                        company=ent.text,
+                        description=[]
+                    ))
+                    
+        return experience_list
+    
+    def _extract_skills(self, doc) -> List[str]:
+        skills = set()
+        for chunk in doc.noun_chunks:
+            if len(chunk.text.split()) <= 3:
+                skills.add(chunk.text.lower().strip())
+        return list(skills)
+    
+    def _find_section(self, doc, section_name: str):
+        # Find the relevant section in the document
+        # This is a simplified implementation
+        return doc
+
+def main():
+    parser = ResumeParser()
+    resume = parser.parse_pdf("path/to/resume.pdf")
+    
+    # Example of using the parsed data
+    print(f"Contact: {resume.contact_info}")
+    print("\nEducation:")
+    for edu in resume.education:
+        print(f"- {edu.institution}: {edu.degree}")
+    print("\nExperience:")
+    for exp in resume.experience:
+        print(f"- {exp.company}: {exp.title}")
+    print("\nSkills:")
+    print(", ".join(resume.skills[:10]))
+
+if __name__ == "__main__":
+    main()
